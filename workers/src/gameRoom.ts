@@ -11,6 +11,13 @@ import { getRandomWord } from './wordService';
 import { calculateGuessScore, calculateDoodlerScore } from './scoring';
 
 /**
+ * Per-connection state persisted across hibernation via connection.setState().
+ */
+interface ConnectionState {
+  playerId: string;
+}
+
+/**
  * GameRoom Agent — one instance per game room.
  *
  * The agent instance name (this.ctx.id.name) IS the room code.
@@ -21,8 +28,8 @@ import { calculateGuessScore, calculateDoodlerScore } from './scoring';
  * - secretWord is stored PRIVATELY (class field) not in state, so
  *   setState() never broadcasts it to non-doodler clients.
  * - Round timers use this.schedule() which wraps DO alarms.
- * - Connection → playerId mapping is in-memory only; on DO eviction
- *   the room is effectively lost (acceptable for a casual game).
+ * - PlayerId is stored in connection.state (persists across
+ *   hibernation) instead of an in-memory Map (lost on hibernate).
  */
 export class GameRoom extends Agent<Env, GameRoomState> {
   // ── Private (non-synced) state ──────────────────────────────
@@ -32,12 +39,6 @@ export class GameRoom extends Agent<Env, GameRoomState> {
 
   /** Timestamp (ms) when the current round started, for score calculation. */
   #roundStartTime: number = 0;
-
-  /** Maps WebSocket connection.id → playerId. */
-  #connToPlayer = new Map<string, string>();
-
-  /** Maps playerId → connection.id. */
-  #playerToConn = new Map<string, string>();
 
   // ── Synced state (broadcast to all clients on every setState) ─
 
@@ -71,7 +72,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
     // createRoom() or joinRoom() shortly after connecting.
   }
 
-  onClose(connection: Connection, _code: number, _reason: string, _wasClean: boolean): void {
+  onClose(connection: Connection<ConnectionState>, _code: number, _reason: string, _wasClean: boolean): void {
     this.#handleDisconnect(connection);
   }
 
@@ -90,14 +91,15 @@ export class GameRoom extends Agent<Env, GameRoomState> {
 
   /**
    * Throws if getCurrentAgent() does not provide a connection.
-   * All @callable() methods must call this first.
+   * Returns the connection and the playerId stored in connection.state.
+   * playerId is undefined if the connection hasn't called create/join yet.
    */
-  #getCaller(): Connection {
-    const { connection } = getCurrentAgent();
+  #getCaller(): { connection: Connection<ConnectionState>; playerId: string | undefined } {
+    const { connection } = getCurrentAgent<ConnectionState>();
     if (!connection) {
       throw new Error('No WebSocket connection context');
     }
-    return connection;
+    return { connection, playerId: connection.state?.playerId };
   }
 
   /**
@@ -106,7 +108,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async createRoom(nickname: string, settings?: Partial<RoomSettings>): Promise<{ playerId: string }> {
-    const connection = this.#getCaller();
+    const { connection } = this.#getCaller();
 
     if (this.state.players.length > 0) {
       throw new Error('Room already exists');
@@ -124,8 +126,8 @@ export class GameRoom extends Agent<Env, GameRoomState> {
       connectionId: connection.id,
     };
 
-    this.#connToPlayer.set(connection.id, playerId);
-    this.#playerToConn.set(playerId, connection.id);
+    // Store playerId on the connection — this persists across DO hibernation
+    connection.setState({ playerId });
 
     this.setState({
       ...this.state,
@@ -147,7 +149,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async joinRoom(nickname: string): Promise<{ playerId: string }> {
-    const connection = this.#getCaller();
+    const { connection } = this.#getCaller();
 
     if (this.state.phase !== 'lobby') {
       throw new Error('Game already in progress');
@@ -167,8 +169,8 @@ export class GameRoom extends Agent<Env, GameRoomState> {
       connectionId: connection.id,
     };
 
-    this.#connToPlayer.set(connection.id, playerId);
-    this.#playerToConn.set(playerId, connection.id);
+    // Store playerId on the connection — this persists across DO hibernation
+    connection.setState({ playerId });
 
     const updatedPlayers = [...this.state.players, player];
 
@@ -187,8 +189,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async leaveRoom(): Promise<void> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { connection, playerId } = this.#getCaller();
     if (!playerId) return;
 
     this.#removePlayer(playerId, connection.id);
@@ -199,8 +200,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async startGame(): Promise<void> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { connection, playerId } = this.#getCaller();
 
     if (this.state.hostId !== playerId) {
       throw new Error('Only the host can start the game');
@@ -231,8 +231,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async makeGuess(word: string): Promise<{ correct: boolean; score?: number }> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { playerId } = this.#getCaller();
 
     if (this.state.phase !== 'playing') {
       return { correct: false };
@@ -286,8 +285,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async drawStroke(stroke: DrawStroke): Promise<void> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { playerId } = this.#getCaller();
 
     if (playerId !== this.state.doodlerId) {
       throw new Error('Only the doodler can draw');
@@ -307,8 +305,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async undoStroke(): Promise<void> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { playerId } = this.#getCaller();
 
     if (playerId !== this.state.doodlerId) {
       throw new Error('Only the doodler can undo');
@@ -325,8 +322,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async clearCanvas(): Promise<void> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { playerId } = this.#getCaller();
 
     if (playerId !== this.state.doodlerId) {
       throw new Error('Only the doodler can clear');
@@ -343,8 +339,7 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    */
   @callable()
   async getSecretWord(): Promise<string | null> {
-    const connection = this.#getCaller();
-    const playerId = this.#connToPlayer.get(connection.id);
+    const { playerId } = this.#getCaller();
 
     if (playerId !== this.state.doodlerId) {
       throw new Error('Only the doodler can see the secret word');
@@ -481,12 +476,9 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    * - In lobby: remove the player entirely.
    * - During game: mark as disconnected but keep in game.
    */
-  #handleDisconnect(connection: Connection): void {
-    const playerId = this.#connToPlayer.get(connection.id);
+  #handleDisconnect(connection: Connection<ConnectionState>): void {
+    const playerId = connection.state?.playerId;
     if (!playerId) return;
-
-    this.#connToPlayer.delete(connection.id);
-    this.#playerToConn.delete(playerId);
 
     if (this.state.phase === 'lobby') {
       this.#removePlayer(playerId, connection.id);
@@ -503,10 +495,8 @@ export class GameRoom extends Agent<Env, GameRoomState> {
    * Remove a player from the room entirely.
    * Reassigns host if needed. Destroys the room if empty.
    */
-  #removePlayer(playerId: string, connectionId: string): void {
+  #removePlayer(playerId: string, _connectionId: string): void {
     const updatedPlayers = this.state.players.filter((p) => p.id !== playerId);
-    this.#connToPlayer.delete(connectionId);
-    this.#playerToConn.delete(playerId);
 
     // Reassign host
     let hostId = this.state.hostId;
