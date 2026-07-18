@@ -1,43 +1,28 @@
 import type {
   Player,
   RoomSettings,
-  Room,
-  RoundState,
-  PlayerGuess,
-  DrawPoint,
   DrawStroke,
-  ServerEvents,
-  ClientEvents,
-  ApiResponse,
 } from '@doodledash/shared';
+export { DEFAULT_ROOM_SETTINGS } from '@doodledash/shared';
+export type { Player, RoomSettings, DrawStroke };
 
-export type {
-  Player,
-  RoomSettings,
-  Room,
-  RoundState,
-  PlayerGuess,
-  DrawPoint,
-  DrawStroke,
-  ServerEvents,
-  ClientEvents,
-  ApiResponse,
-};
-export { GameState, DEFAULT_ROOM_SETTINGS } from '@doodledash/shared';
+export interface ConnectedPlayer extends Player {
+  connectionId: string;
+}
 
 /**
- * Game room state synced from the server via the Agents SDK onStateUpdate.
- * Mirrors the server-side GameRoom state shape.
+ * The synced game state broadcast to all connected clients via setState().
+ * secretWord is intentionally NOT included here — it's stored as a private
+ * field and delivered only to the doodler via a @callable() method.
  */
 export interface GameRoomState {
   phase: 'lobby' | 'playing' | 'round_end' | 'game_over';
-  players: (Player & { connectionId: string })[];
+  players: ConnectedPlayer[];
   hostId: string;
   settings: RoomSettings;
   currentRound: number;
   totalRounds: number;
   doodlerId: string | null;
-  secretWord: string | null;
   wordCategory: string | null;
   wordLength: number;
   drawTime: number;
@@ -49,4 +34,8 @@ export interface GameRoomState {
   error: string | null;
   roomCode: string;
   playerIdCounter: number;
+}
+
+export interface Env {
+  GameRoom: DurableObjectNamespace;
 }
