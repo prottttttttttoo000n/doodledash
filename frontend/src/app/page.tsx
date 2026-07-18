@@ -102,21 +102,20 @@ function GameView({
   const actionSent = useRef(false);
   const game = useGame(roomCode);
 
-  // Send the initial action (create or join) once on mount
+  // Send the initial action (create or join) once the WebSocket connects.
+  // Must NOT use setTimeout + cleanup — a mid-flight re-render (from
+  // onStateUpdate) would cancel the timer and the action is silently lost.
   useEffect(() => {
     if (!pendingAction || actionSent.current) return;
+    if (!game.isConnected) return;
+
     actionSent.current = true;
-
-    const timer = setTimeout(() => {
-      if (pendingAction.type === 'create') {
-        game.createRoom(pendingAction.nickname, pendingAction.settings);
-      } else {
-        game.joinRoom(pendingAction.nickname);
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [pendingAction, game]);
+    if (pendingAction.type === 'create') {
+      game.createRoom(pendingAction.nickname, pendingAction.settings);
+    } else {
+      game.joinRoom(pendingAction.nickname);
+    }
+  }, [pendingAction, game.isConnected, game]);
 
   // ── Connecting / error states ──────────────────────────────
   if (!game.isConnected && !game.error) {
