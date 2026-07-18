@@ -57,21 +57,9 @@ export default {
     // ── Route to Agent (WebSocket upgrade for game room) ────
     const agentResponse = await routeAgentRequest(request, env);
     if (agentResponse) {
-      // Add CORS headers for non-WebSocket agent routes
-      const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      };
-      const resp = new Response(agentResponse.body, {
-        status: agentResponse.status,
-        statusText: agentResponse.statusText,
-        headers: agentResponse.headers,
-      });
-      for (const [key, value] of Object.entries(corsHeaders)) {
-        resp.headers.set(key, value);
-      }
-      return resp;
+      // Return the agent response directly — do NOT re-wrap, since
+      // WebSocket upgrade responses (status 101) cannot be cloned.
+      return agentResponse;
     }
 
     // ── 404 ──────────────────────────────────────────────────

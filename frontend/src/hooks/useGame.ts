@@ -67,6 +67,7 @@ export function useGame(roomCode: string): UseGameReturn {
   const agent = useAgent({
     agent: 'GameRoom',
     name: roomCode,
+    host: process.env.NEXT_PUBLIC_AGENT_URL || undefined,
     onStateUpdate: (newState: GameRoomState) => {
       setState(newState);
       setIsConnected(true);
