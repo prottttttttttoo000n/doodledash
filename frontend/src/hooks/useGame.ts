@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAgent } from 'agents/react';
 import type {
   Player,
@@ -63,6 +63,8 @@ export function useGame(roomCode: string): UseGameReturn {
   const [state, setState] = useState<GameRoomState | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [secretWord, setSecretWord] = useState<string | null>(null);
+  const fetchedSecretRef = useRef(false);
 
   const agent = useAgent({
     agent: 'GameRoom',
@@ -87,6 +89,24 @@ export function useGame(roomCode: string): UseGameReturn {
     },
     [agent],
   );
+
+  // Auto-fetch secret word when the doodler enters playing phase.
+  // The secret word is stored privately on the server (#secretWord)
+  // and is NOT included in the synced state — must fetch via RPC.
+  useEffect(() => {
+    if (state?.phase === 'playing' && state.doodlerId === playerId && !fetchedSecretRef.current) {
+      fetchedSecretRef.current = true;
+      (agent.stub as Record<string, (...args: unknown[]) => Promise<unknown>>)
+        .getSecretWord()
+        .then((word: unknown) => setSecretWord(word as string | null))
+        .catch(() => {});
+    }
+    // Reset the flag when leaving playing phase (e.g. round end) so
+    // the next round's word is also fetched.
+    if (state?.phase !== 'playing') {
+      fetchedSecretRef.current = false;
+    }
+  }, [state?.phase, state?.doodlerId, playerId, agent.stub]);
 
   const createRoom = useCallback(
     async (nickname: string, settings?: Partial<RoomSettings>) => {
@@ -192,7 +212,7 @@ export function useGame(roomCode: string): UseGameReturn {
     currentRound: state?.currentRound ?? 0,
     totalRounds: state?.totalRounds ?? 0,
     doodlerId: state?.doodlerId ?? null,
-    secretWord: state?.secretWord ?? null,
+    secretWord,
     wordCategory: state?.wordCategory ?? null,
     wordLength: state?.wordLength ?? 0,
     secondsLeft: state?.drawTime ?? 0,
