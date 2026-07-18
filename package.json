@@ -1,0 +1,15 @@
+{
+  "name": "doodledash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time multiplayer drawing & guessing party game",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @doodledash/server dev\" \"pnpm --filter @doodledash/frontend dev\"",
+    "build": "pnpm --filter @doodledash/shared build && pnpm --filter @doodledash/server build && pnpm --filter @doodledash/frontend build",
+    "start": "pnpm --filter @doodledash/server start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.0"
+  }
+}
