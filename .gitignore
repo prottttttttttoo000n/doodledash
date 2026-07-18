@@ -7,3 +7,8 @@ dist/
 .DS_Store
 coverage/
 README.local.md
+out/
+next-env.d.ts
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+package-lock.json

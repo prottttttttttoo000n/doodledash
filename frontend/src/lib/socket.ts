@@ -1,33 +1,34 @@
 'use client';
 
-import { io, Socket } from 'socket.io-client';
+import { AgentClient } from 'agents/client';
 
-const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8787';
 
-let socket: Socket | null = null;
+const agentClients = new Map<string, AgentClient>();
 
-export function getSocket(): Socket {
-  if (!socket) {
-    socket = io(SOCKET_URL, {
-      autoConnect: false,
-      transports: ['websocket', 'polling'],
-    });
+export function getAgent(
+  agentName: string,
+  instanceName: string,
+): AgentClient {
+  const key = `${agentName}:${instanceName}`;
+  if (!agentClients.has(key)) {
+    agentClients.set(
+      key,
+      new AgentClient({
+        agent: agentName,
+        name: instanceName,
+        host: AGENT_URL,
+      }),
+    );
   }
-  return socket;
+  return agentClients.get(key) as AgentClient;
 }
 
-export function connectSocket(): Socket {
-  const s = getSocket();
-  if (!s.connected) {
-    s.connect();
-  }
-  return s;
+export function removeAgent(agentName: string, instanceName: string): void {
+  const key = `${agentName}:${instanceName}`;
+  agentClients.delete(key);
 }
 
-export function disconnectSocket(): void {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
+export function clearAgents(): void {
+  agentClients.clear();
 }

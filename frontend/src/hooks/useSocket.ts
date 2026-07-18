@@ -1,45 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Socket } from 'socket.io-client';
-import { connectSocket, disconnectSocket } from '@/lib/socket';
+import { useAgent } from 'agents/react';
+import type { GameRoomState } from '@/types';
 
-interface UseSocketReturn {
-  socket: Socket | null;
-  isConnected: boolean;
+interface UseAgentGameOptions {
+  roomCode: string;
+  onStateUpdate: (state: GameRoomState) => void;
 }
 
-export function useSocket(): UseSocketReturn {
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+/**
+ * Hook that wraps the `useAgent` hook from `agents/react` for the GameRoom agent.
+ * Provides a typed interface for connecting to a game room and receiving state updates.
+ */
+export function useAgentGame({ roomCode, onStateUpdate }: UseAgentGameOptions) {
+  const agent = useAgent({
+    agent: 'GameRoom',
+    name: roomCode,
+    onStateUpdate,
+    onError: (err) => console.error('Agent error:', err),
+  });
 
-  useEffect(() => {
-    const s = connectSocket();
-    setSocket(s);
-
-    function onConnect(): void {
-      setIsConnected(true);
-    }
-    function onDisconnect(): void {
-      setIsConnected(false);
-    }
-    function onConnectError(): void {
-      setIsConnected(false);
-    }
-
-    s.on('connect', onConnect);
-    s.on('disconnect', onDisconnect);
-    s.on('connect_error', onConnectError);
-
-    if (s.connected) setIsConnected(true);
-
-    return () => {
-      s.off('connect', onConnect);
-      s.off('disconnect', onDisconnect);
-      s.off('connect_error', onConnectError);
-      disconnectSocket();
-    };
-  }, []);
-
-  return { socket, isConnected };
+  return {
+    agent,
+    isConnected: true,
+  };
 }
